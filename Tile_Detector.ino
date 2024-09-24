@@ -2,8 +2,8 @@
 // Board XIAO ESP32C6
 // Simon Rafferty 2024
 //
-// This is a presence detector based on Tile BLE Tags (but it could 
-// just as easily work with Airtags).
+// This is a presence detector based on BLE Tags (but it could 
+// just as easily work with Airtags by changing line 70).
 //
 // Taking D0 Low puts it into scanning mode.  Tags are sorted by decreasing
 // signal strength.  When D0 goes High, the tag with the strongest signal is stored.
@@ -36,6 +36,8 @@ struct DeviceInfo {
 BLEScan* pBLEScan;
 Preferences preferences;
 
+const int RSSI_THRESHOLD = -80;   //Minimum signal strength.  Increase to reduce range
+
 const int D0_PIN = D0;           // Adjust as needed
 const int D1_PIN = D1;           // Adjust as needed
 const int LED_PIN = LED_BUILTIN; // Adjust as needed
@@ -67,7 +69,8 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
     String macAddress = advertisedDevice.getAddress().toString().c_str();
     int rssi = advertisedDevice.getRSSI();
 
-    if (deviceName == "Tile") {
+    //if (deviceName == "Tile") {
+    if (rssi > RSSI_THRESHOLD) {
       // If in SCAN_AND_LIST_DEVICES mode, collect devices
       if (currentMode == SCAN_AND_LIST_DEVICES) {
         // Check if device is already in list
@@ -89,19 +92,13 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
       }
 
       // If in SCAN_FOR_STORED_DEVICE mode, check for stored MAC address
-      if (currentMode == SCAN_FOR_STORED_DEVICE && storedMacAddress != "" && macAddress == storedMacAddress) {
+      if (currentMode == SCAN_FOR_STORED_DEVICE && storedMacAddress != "" && macAddress == storedMacAddress && rssi>RSSI_THRESHOLD) {
         // Update last detected time
         lastDetectedTime = millis();
+        Serial.print("Stored device detected - RSSI = ");
+        Serial.println(rssi);
 
         if (!deviceDetected) {
-          Serial.println("Stored device detected!");
-          Serial.print("MAC Address: ");
-          Serial.println(macAddress);
-          Serial.print("Device Name: ");
-          Serial.println(deviceName);
-          Serial.print("RSSI: ");
-          Serial.println(rssi);
-
           // Flash LED continuously and set D1 HIGH
           digitalWrite(D1_PIN, HIGH);
           deviceDetected = true;
@@ -145,7 +142,7 @@ void scanComplete(BLEScanResults scanResults) {
         Serial.println(device.rssi);
       }
     } else {
-      Serial.println("No devices named 'Tile' found.");
+      Serial.println("No devices found.");
     }
   }
 }
@@ -209,14 +206,15 @@ void loop() {
       preferences.putString("storedMac", storedMacAddress);
       Serial.print("Stored MAC Address: ");
       Serial.println(storedMacAddress);
+
+      // Clear devices list
+      devices.clear();
+      // Switch to SCAN_FOR_STORED_DEVICE mode
+      if (storedMacAddress != "") {
+        currentMode = SCAN_FOR_STORED_DEVICE;
+      }
     } else {
       Serial.println("No devices to store.");
-    }
-    // Clear devices list
-    devices.clear();
-    // Switch to SCAN_FOR_STORED_DEVICE mode
-    if (storedMacAddress != "") {
-      currentMode = SCAN_FOR_STORED_DEVICE;
     }
   }
 
@@ -225,13 +223,13 @@ void loop() {
   // Scanning logic
   if (!isScanning) {
     if (currentMode == SCAN_AND_LIST_DEVICES) {
-      Serial.println("Scanning and listing devices named 'Tile'...");
+      Serial.println("Scanning and listing devices...");
       devices.clear(); // Clear previous devices list
       isScanning = true;
       pBLEScan->start(5, scanComplete); // Scan for 5 seconds
     } else if (currentMode == SCAN_FOR_STORED_DEVICE) {
       if (storedMacAddress != "") {
-        Serial.println("Scanning for the stored device...");
+        Serial.print(".");
         isScanning = true;
         pBLEScan->start(5, scanComplete); // Scan for 5 seconds
       } else {
